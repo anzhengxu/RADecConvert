@@ -153,6 +153,7 @@ footer {
   <span>Equatorial–Galactic Coordinate Conversion</span>
 </h1>
 <div class="lang-bar" id="langBar"></div>
+<div class="subtitle" id="subtitle"></div>
 
 <div class="tabs">
   <div class="tab active" id="tab1" onclick="switchTab('eq2gal')"></div>
@@ -238,7 +239,7 @@ function setLang(l){
   lang=l;
   const t=LANG[l];
   renderLangBar();
-  document.getElementById("subtitle").innerText=t.subtitle;
+  if(document.getElementById("subtitle")) document.getElementById("subtitle").innerText = t.subtitle || "";
   document.getElementById("tab1").innerText=t.tab1;
   document.getElementById("tab2").innerText=t.tab2;
   document.getElementById("lblRa").innerText=t.ra;
