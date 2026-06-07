@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>赤道坐标、银道坐标转换器</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --bg:#f4f7fb;
+  --card:#ffffff;
+  --primary:#3b82f6;
+  --text:#1f2937;
+  --muted:#6b7280;
+  --error:#dc2626;
+}
+* { box-sizing:border-box; }
+
+body {
+  margin:0;
+  font-family:"Inter",system-ui,-apple-system;
+  background:var(--bg);
+  color:var(--text);
+}
+
+.container {
+  width:100%;
+  max-width:680px;
+  margin:48px auto;
+  padding:0 16px;
+}
+
+h1 {
+  text-align:center;
+  font-size:clamp(22px, 5vw, 26px);
+  margin-bottom:6px;
+}
+
+.lang-bar {
+  text-align:center;
+  margin-bottom:12px;
+  font-size:clamp(13px, 3.5vw, 15px);
+}
+
+.lang-bar span {
+  margin:0 6px;
+  cursor:pointer;
+  color:var(--primary);
+  font-weight:500;
+}
+
+.lang-bar span.active {
+  text-decoration:underline;
+}
+
+.tabs {
+  display:flex;
+  background:#e5edff;
+  border-radius:10px;
+  overflow:hidden;
+  margin-bottom:24px;
+}
+
+.tab {
+  flex:1;
+  padding:12px;
+  text-align:center;
+  cursor:pointer;
+  font-weight:600;
+  font-size:clamp(13px, 3.5vw, 15px);
+}
+
+.tab.active {
+  background:var(--primary);
+  color:#fff;
+}
+
+.card {
+  background:var(--card);
+  border-radius:14px;
+  padding:clamp(16px, 5vw, 24px);
+  box-shadow:0 8px 24px rgba(0,0,0,.06);
+}
+
+label {
+  display:block;
+  font-weight:600;
+  margin-top:16px;
+  font-size:clamp(13px, 3.5vw, 15px);
+}
+
+.hint {
+  font-size:clamp(11px, 3vw, 12px);
+  color:var(--muted);
+  margin-top:4px;
+}
+
+.error {
+  font-size:clamp(11px, 3vw, 12px);
+  color:var(--error);
+  margin-top:4px;
+}
+
+input {
+  width:100%;
+  padding:clamp(10px, 3.5vw, 12px);
+  margin-top:6px;
+  border-radius:8px;
+  border:1px solid #d1d5db;
+  font-size:clamp(14px, 4vw, 15px);
+}
+
+button {
+  margin-top:22px;
+  width:100%;
+  padding:clamp(12px, 4vw, 14px);
+  background:var(--primary);
+  color:#fff;
+  border:none;
+  border-radius:10px;
+  font-size:clamp(15px, 4vw, 16px);
+  cursor:pointer;
+}
+
+button:hover { opacity:.9; }
+
+.result {
+  margin-top:18px;
+  padding:14px;
+  background:#eff6ff;
+  border-radius:10px;
+  font-size:clamp(13px, 3.5vw, 15px);
+  line-height:1.6;
+}
+
+footer {
+  text-align:center;
+  margin-top:36px;
+  font-size:clamp(12px, 3vw, 13px);
+  color:var(--muted);
+}
+
+.hidden { display:none; }
+</style>
+</head>
+
+<body>
+<div class="container">
+<h1>
+  <span>银道坐标、赤道坐标转换器</span><br>
+  <span>Equatorial–Galactic Coordinate Conversion</span>
+</h1>
+
+<div class="lang-bar" id="langBar"></div>
+
+<div class="tabs">
+  <div class="tab active" id="tab1" onclick="switchTab('eq2gal')"></div>
+  <div class="tab" id="tab2" onclick="switchTab('gal2eq')"></div>
+</div>
+
+<!-- RA/Dec → l,b -->
+<div class="card" id="eq2gal">
+  <label id="lblRa"></label>
+  <input id="ra" oninput="clearError('errRa')">
+  <div class="hint" id="hintRa"></div>
+  <div class="error hidden" id="errRa"></div>
+
+  <label id="lblDec"></label>
+  <input id="dec" oninput="clearError('errDec')">
+  <div class="hint" id="hintDec"></div>
+  <div class="error hidden" id="errDec"></div>
+
+  <button id="btnEq2gal" onclick="toGalactic()"></button>
+  <div id="r1" class="result hidden"></div>
+</div>
+
+<!-- l,b → RA/Dec -->
+<div class="card hidden" id="gal2eq">
+  <label id="lblL"></label>
+  <input id="l" oninput="clearError('errL')">
+  <div class="hint" id="hintL"></div>
+  <div class="error hidden" id="errL"></div>
+
+  <label id="lblB"></label>
+  <input id="b" oninput="clearError('errB')">
+  <div class="hint" id="hintB"></div>
+  <div class="error hidden" id="errB"></div>
+
+  <button id="btnGal2eq" onclick="toEquatorial()"></button>
+  <div id="r2" class="result hidden"></div>
+</div>
+
+<footer id="footer"></footer>
+</div>
+
+<script>
+/* ===== Astropy 等效核心算法（ICRS ↔ Galactic）===== */
+const d2r = Math.PI / 180;
+const r2d = 180 / Math.PI;
+
+const alphaGP = 192.85948;   // deg
+const deltaGP = 27.12825;    // deg
+const l0      = 32.93192;    // deg
+
+const sinDeltaGP = Math.sin(deltaGP * d2r);
+const cosDeltaGP = Math.cos(deltaGP * d2r);
+
+function eq2gal(raDeg, decDeg) {
+  const ra = raDeg * d2r;
+  const dec = decDeg * d2r;
+
+  const sinDec = Math.sin(dec);
+  const cosDec = Math.cos(dec);
+
+  const sinRA = Math.sin(ra - alphaGP * d2r);
+  const cosRA = Math.cos(ra - alphaGP * d2r);
+
+  const b = Math.asin(
+    sinDec * sinDeltaGP +
+    cosDec * cosDeltaGP * cosRA
+  );
+
+  const l = Math.atan2(
+    cosDec * sinRA,
+    sinDec * cosDeltaGP -
+    cosDec * sinDeltaGP * cosRA
+  );
+
+  let lDeg = l * r2d + l0;
+  let bDeg = b * r2d;
+
+  lDeg = (lDeg + 90) % 360;
+  lDeg = (lDeg + 360) % 360;
+
+  return { l: lDeg, b: bDeg };
+}
+
+function gal2eq(lDeg, bDeg) {
+  const l = lDeg * d2r;
+  const b = bDeg * d2r;
+
+  const sinB = Math.sin(b);
+  const cosB = Math.cos(b);
+
+  const sinL = Math.sin(l - l0 * d2r);
+  const cosL = Math.cos(l - l0 * d2r);
+
+  const dec = Math.asin(
+    sinB * sinDeltaGP +
+    cosB * cosDeltaGP * cosL
+  );
+
+  const ra = Math.atan2(
+    cosB * sinL,
+    sinB * cosDeltaGP -
+    cosB * sinDeltaGP * cosL
+  );
+
+  let raDeg = ra * r2d + alphaGP;
+  let decDeg = dec * r2d;
+
+  raDeg = (raDeg % 360 + 360) % 360;
+  return { ra: raDeg, dec: decDeg };
+}
+
+/* ===== i18n ===== */
+const LANG = {
+zh:{
+  name:"中文",
+  tab1:"赤经赤纬 → 银经银纬",
+  tab2:"银经银纬 → 赤经赤纬",
+  ra:"赤经 RA",
+  hintRa:"格式：时:分:秒（例：05:34:31.97）",
+  dec:"赤纬 Dec",
+  hintDec:"格式：±度:分:秒（例：+22:00:52.1）",
+  l:"银经 l",
+  hintL:"单位：度（0 到 360）",
+  b:"银纬 b",
+  hintB:"单位：度（-90 到 +90）",
+  btnEq:"转换",
+  btnGal:"转换",
+  err:"输入格式不正确",
+  resultL:"银经 l",
+  resultB:"银纬 b",
+  resultRa:"赤经 RA",
+  resultDec:"赤纬 Dec",
+  footer:"基于 J2000.0"
+},
+en:{
+  name:"English",
+  tab1:"RA/Dec → l/b",
+  tab2:"l/b → RA/Dec",
+  ra:"Right Ascension (RA)",
+  hintRa:"Format: h:m:s (e.g. 05:34:31.97)",
+  dec:"Declination (Dec)",
+  hintDec:"Format: ±d:m:s (e.g. +22:00:52.1)",
+  l:"Galactic Longitude l",
+  hintL:"Unit: degrees (0 to 360)",
+  b:"Galactic Latitude b",
+  hintB:"Unit: degrees (-90 to +90)",
+  btnEq:"Convert",
+  btnGal:"Convert",
+  err:"Invalid input format",
+  resultL:"Galactic Longitude l",
+  resultB:"Galactic Latitude b",
+  resultRa:"Right Ascension",
+  resultDec:"Declination",
+  footer:"Based on J2000.0"
+}
+};
+
+let lang='zh';
+function setLang(l){
+  lang=l;
+  const t=LANG[l];
+  renderLangBar();
+  document.getElementById("tab1").innerText=t.tab1;
+  document.getElementById("tab2").innerText=t.tab2;
+  document.getElementById("lblRa").innerText=t.ra;
+  document.getElementById("hintRa").innerText=t.hintRa;
+  document.getElementById("lblDec").innerText=t.dec;
+  document.getElementById("hintDec").innerText=t.hintDec;
+  document.getElementById("lblL").innerText=t.l;
+  document.getElementById("hintL").innerText=t.hintL;
+  document.getElementById("lblB").innerText=t.b;
+  document.getElementById("hintB").innerText=t.hintB;
+  document.getElementById("btnEq2gal").innerText=t.btnEq;
+  document.getElementById("btnGal2eq").innerText=t.btnGal;
+  document.getElementById("footer").innerText=t.footer;
+}
+function renderLangBar(){
+  const bar=document.getElementById("langBar");
+  bar.innerHTML=Object.keys(LANG).map(k=>`
+    <span class="${k===lang?'active':''}" onclick="setLang('${k}')">${LANG[k].name}</span>
+  `).join('');
+}
+
+/* ===== UI ===== */
+function switchTab(id){
+  document.querySelectorAll('.card').forEach(c=>c.classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById(id==='eq2gal'?'tab1':'tab2').classList.add('active');
+}
+
+/* ===== Helpers ===== */
+function hmsToDeg(hms){
+  const [h,m,s]=hms.split(':').map(Number);
+  return (h+m/60+s/3600)*15;
+}
+function dmsToDeg(dms){
+  const s=dms.trim();
+  const sign=s.startsWith('-')?-1:1;
+  const [d,m,sec]=s.replace(/^[+-]/,'').split(':').map(Number);
+  return sign*(d+(m||0)/60+(sec||0)/3600);
+}
+function degToHMS(deg){
+  deg=(deg%360+360)%360;
+  const h=deg/15,hh=Math.floor(h);
+  const mm=Math.floor((h-hh)*60);
+  const ss=((h-hh-mm/60)*3600).toFixed(4);
+  return `${hh.toString().padStart(2,'0')}:${mm.toString().padStart(2,'0')}:${ss}`;
+}
+function degToDMS(deg){
+  const s=deg<0;
+  deg=Math.abs(deg);
+  const d=Math.floor(deg);
+  const m=Math.floor((deg-d)*60);
+  const sec=((deg-d-m/60)*3600).toFixed(3);
+  return (s?'-':'+')+`${d}:${m}:${sec}`;
+}
+
+/* ===== Validation ===== */
+function showError(id,msg){
+  const e=document.getElementById(id);
+  e.innerText=msg; e.classList.remove('hidden');
+}
+function clearError(id){
+  document.getElementById(id).classList.add('hidden');
+}
+function isValidHMS(v){
+  const p=v.trim().split(':');
+  return p.length===3 && p.every(x=>!isNaN(x)&&x!=='');
+}
+function isValidNumber(v){
+  return !isNaN(v)&&v!=='';
+}
+
+/* ===== Actions ===== */
+function toGalactic(){
+  const t=LANG[lang];
+  clearError('errRa'); clearError('errDec');
+  if(!isValidHMS(ra.value)) return showError('errRa',t.err);
+  if(!isValidHMS(dec.value)) return showError('errDec',t.err);
+
+  const r=eq2gal(hmsToDeg(ra.value),dmsToDeg(dec.value));
+  const el=r1;
+  el.innerHTML=`<b>${t.resultL}：</b>${r.l.toFixed(6)}°<br><b>${t.resultB}：</b>${r.b.toFixed(6)}°`;
+  el.classList.remove('hidden');
+}
+function toEquatorial(){
+  const t=LANG[lang];
+  clearError('errL'); clearError('errB');
+  if(!isValidNumber(l.value)) return showError('errL',t.err);
+  if(!isValidNumber(b.value)) return showError('errB',t.err);
+
+  const r=gal2eq(+l.value,+b.value);
+  const el=r2;
+  el.innerHTML=`<b>${t.resultRa}：</b>${degToHMS(r.ra)}<br><b>${t.resultDec}：</b>${degToDMS(r.dec)}`;
+  el.classList.remove('hidden');
+}
+
+setLang('zh');
+renderLangBar();
+</script>
+</body>
+</html>
